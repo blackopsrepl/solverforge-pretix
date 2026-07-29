@@ -123,6 +123,7 @@ class PartySpec:
 @dataclass(frozen=True, slots=True)
 class PlanningSnapshot:
     event_id: int
+    subevent_id: int | None
     minimum_seat_distance: float
     distance_within_row: bool
     seats: tuple[SeatFact, ...]

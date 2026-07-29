@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import urlencode
 
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied
@@ -10,6 +11,7 @@ from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 from django.views import View
 from django.views.generic import FormView, TemplateView
+from pretix.base.models import SubEvent
 from pretix.base.services.orders import OrderError
 from pretix.control.permissions import EventPermissionRequiredMixin
 from pretix.control.views.event import EventSettingsViewMixin
@@ -42,26 +44,35 @@ class IndexView(EventPermissionRequiredMixin, TemplateView):
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
         event = self.request.event
+        subevent = _selected_subevent(self.request, source="GET")
+        scope_ready = not event.has_subevents or subevent is not None
         try:
             configuration = PlannerConfiguration.objects.get(event=event)
         except PlannerConfiguration.DoesNotExist:
             configuration = PlannerConfiguration(event=event)
 
-        proposal = (
-            SeatingProposal.objects.filter(event=event)
-            .exclude(status=SeatingProposal.Status.DISCARDED)
-            .first()
-        )
+        proposal = None
+        if scope_ready:
+            proposal = (
+                SeatingProposal.objects.filter(
+                    event=event,
+                    subevent=subevent,
+                )
+                .exclude(status=SeatingProposal.Status.DISCARDED)
+                .first()
+            )
         snapshot = None
         input_error = ""
-        try:
-            snapshot = load_planning_snapshot(
-                event,
-                configuration,
-                reject_orphan_locks=False,
-            )
-        except PlanningInputError as exc:
-            input_error = str(exc)
+        if scope_ready:
+            try:
+                snapshot = load_planning_snapshot(
+                    event,
+                    configuration,
+                    subevent=subevent,
+                    reject_orphan_locks=False,
+                )
+            except PlanningInputError as exc:
+                input_error = str(exc)
 
         proposal_is_stale = bool(
             proposal
@@ -70,8 +81,16 @@ class IndexView(EventPermissionRequiredMixin, TemplateView):
             and proposal.snapshot_fingerprint != snapshot.fingerprint
         )
         assignments = list(proposal.assignments) if proposal else []
+        locks = (
+            PlacementLock.objects.filter(
+                event=event,
+                subevent=subevent,
+            )
+            if scope_ready
+            else PlacementLock.objects.none()
+        )
         current_lock_keys = set(
-            PlacementLock.objects.filter(event=event).values_list(
+            locks.values_list(
                 "party_key",
                 flat=True,
             )
@@ -98,21 +117,28 @@ class IndexView(EventPermissionRequiredMixin, TemplateView):
             request=self.request,
         )
         seat_map = seat_map_payload(snapshot, proposal) if snapshot else []
-        current_parties = [
-            {
-                "party_key": party.key,
-                "order_code": party.order_code,
-                "product_name": party.product_name,
-                "position_count": party.size,
-                "seat_guids": list(party.current_seat_guids),
-                "currently_locked": party.key in current_lock_keys,
-            }
-            for party in snapshot.parties
-            if party.current_seat_guids
-        ] if snapshot else []
+        current_parties = (
+            [
+                {
+                    "party_key": party.key,
+                    "order_code": party.order_code,
+                    "product_name": party.product_name,
+                    "position_count": party.size,
+                    "seat_guids": list(party.current_seat_guids),
+                    "currently_locked": party.key in current_lock_keys,
+                }
+                for party in snapshot.parties
+                if party.current_seat_guids
+            ]
+            if snapshot
+            else []
+        )
         context.update(
             {
                 "configuration": configuration,
+                "subevent": subevent,
+                "selected_subevents": [subevent] if subevent is not None else [],
+                "scope_ready": scope_ready,
                 "proposal": proposal,
                 "proposal_is_stale": proposal_is_stale,
                 "assignments": assignments,
@@ -120,7 +146,7 @@ class IndexView(EventPermissionRequiredMixin, TemplateView):
                 "input_error": input_error,
                 "can_write": can_write,
                 "can_configure": can_configure,
-                "locks": PlacementLock.objects.filter(event=event),
+                "locks": locks,
                 "current_parties": current_parties,
                 "seat_map": seat_map,
                 "proposed_seat_count": sum(
@@ -178,8 +204,18 @@ class GenerateView(EventPermissionRequiredMixin, View):
     permission = "event.orders:write"
 
     def post(self, request: HttpRequest, *args: object, **kwargs: object) -> HttpResponse:
+        subevent = None
         try:
-            proposal = generate_proposal(request.event, request.user)
+            subevent = _selected_subevent(
+                request,
+                source="POST",
+                required=request.event.has_subevents,
+            )
+            proposal = generate_proposal(
+                request.event,
+                request.user,
+                subevent=subevent,
+            )
         except (PlanningInputError, StaleProposalError, SolverForgeError) as exc:
             messages.error(request, _("No proposal was generated: %(error)s") % {"error": exc})
         else:
@@ -188,7 +224,7 @@ class GenerateView(EventPermissionRequiredMixin, View):
                 _("Proposal %(id)s is ready for review. Nothing has been committed.")
                 % {"id": proposal.pk},
             )
-        return redirect(_url(request, "index"))
+        return redirect(_url(request, "index", subevent=subevent))
 
 
 class _ProposalView(EventPermissionRequiredMixin, View):
@@ -196,7 +232,7 @@ class _ProposalView(EventPermissionRequiredMixin, View):
 
     def get_proposal(self, proposal_id: int) -> SeatingProposal:
         try:
-            return SeatingProposal.objects.get(
+            return SeatingProposal.objects.select_related("subevent").get(
                 pk=proposal_id,
                 event=self.request.event,
             )
@@ -223,37 +259,58 @@ class LockView(_ProposalView):
                 request,
                 _("Placement locked. Replan to apply the lock."),
             )
-        return redirect(_url(request, "index"))
+        return redirect(_url(request, "index", subevent=proposal.subevent))
 
 
 class LockExistingView(EventPermissionRequiredMixin, View):
     permission = "event.orders:write"
 
     def post(self, request: HttpRequest, *args: object, **kwargs: object) -> HttpResponse:
+        subevent = None
         try:
+            subevent = _selected_subevent(
+                request,
+                source="POST",
+                required=request.event.has_subevents,
+            )
             lock_existing_placement(
                 request.event,
                 request.POST.get("party_key", ""),
                 request.user,
+                subevent=subevent,
             )
-        except (InfeasiblePlanError, StaleProposalError) as exc:
+        except (
+            InfeasiblePlanError,
+            PlanningInputError,
+            StaleProposalError,
+        ) as exc:
             messages.error(request, _("Placement was not locked: %(error)s") % {"error": exc})
         else:
             messages.success(
                 request,
                 _("The existing placement is locked. Replan to apply the lock."),
             )
-        return redirect(_url(request, "index"))
+        return redirect(_url(request, "index", subevent=subevent))
 
 
 class UnlockView(EventPermissionRequiredMixin, View):
     permission = "event.orders:write"
 
     def post(self, request: HttpRequest, *args: object, **kwargs: object) -> HttpResponse:
+        try:
+            subevent = _selected_subevent(
+                request,
+                source="POST",
+                required=request.event.has_subevents,
+            )
+        except PlanningInputError as exc:
+            messages.error(request, str(exc))
+            return redirect(_url(request, "index"))
         lock_id_raw = request.POST.get("lock_id")
         lock_id = int(lock_id_raw) if lock_id_raw and lock_id_raw.isdigit() else None
         changed = unlock_placement(
             request.event,
+            subevent=subevent,
             party_key=request.POST.get("party_key") or None,
             lock_id=lock_id,
             user=request.user,
@@ -262,7 +319,7 @@ class UnlockView(EventPermissionRequiredMixin, View):
             messages.success(request, _("Placement unlocked. Replan to continue."))
         else:
             messages.info(request, _("The placement was already unlocked."))
-        return redirect(_url(request, "index"))
+        return redirect(_url(request, "index", subevent=subevent))
 
 
 class DiscardView(_ProposalView):
@@ -273,9 +330,10 @@ class DiscardView(_ProposalView):
         *args: object,
         **kwargs: object,
     ) -> HttpResponse:
-        discard_proposal(self.get_proposal(proposal_id), request.user)
+        proposal = self.get_proposal(proposal_id)
+        discard_proposal(proposal, request.user)
         messages.success(request, _("The proposal was discarded."))
-        return redirect(_url(request, "index"))
+        return redirect(_url(request, "index", subevent=proposal.subevent))
 
 
 class CommitConfirmView(
@@ -288,7 +346,7 @@ class CommitConfirmView(
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
         try:
-            proposal = SeatingProposal.objects.get(
+            proposal = SeatingProposal.objects.select_related("subevent").get(
                 pk=self.kwargs["proposal_id"],
                 event=self.request.event,
             )
@@ -299,6 +357,7 @@ class CommitConfirmView(
         context.update(
             {
                 "proposal": proposal,
+                "subevent": proposal.subevent,
                 "form": CommitConfirmationForm(),
                 "changed_positions": sum(
                     frozenset(assignment["current_seat_guids"])
@@ -326,6 +385,7 @@ class CommitView(_ProposalView):
                 _url(
                     request,
                     "commit.confirm",
+                    subevent=proposal.subevent,
                     proposal_id=proposal.pk,
                 )
             )
@@ -351,11 +411,43 @@ class CommitView(_ProposalView):
                     _("%(count)s real order positions were assigned through pretix.")
                     % {"count": result.changed_positions},
                 )
-        return redirect(_url(request, "index"))
+        return redirect(_url(request, "index", subevent=proposal.subevent))
 
 
-def _url(request: HttpRequest, name: str, **kwargs: object) -> str:
-    return reverse(
+def _selected_subevent(
+    request: HttpRequest,
+    *,
+    source: str,
+    required: bool = False,
+) -> SubEvent | None:
+    values = request.POST if source == "POST" else request.GET
+    raw = values.get("subevent", "")
+    if not request.event.has_subevents:
+        if raw:
+            raise Http404
+        return None
+    if not raw:
+        if required:
+            raise PlanningInputError(
+                "Select one date in this event series before planning seats."
+            )
+        return None
+    if not raw.isdigit():
+        raise Http404
+    try:
+        return request.event.subevents.get(pk=int(raw))
+    except SubEvent.DoesNotExist as exc:
+        raise Http404 from exc
+
+
+def _url(
+    request: HttpRequest,
+    name: str,
+    *,
+    subevent: SubEvent | None = None,
+    **kwargs: object,
+) -> str:
+    url = reverse(
         f"plugins:pretix_solverforge_seating:{name}",
         kwargs={
             "organizer": request.organizer.slug,
@@ -363,3 +455,6 @@ def _url(request: HttpRequest, name: str, **kwargs: object) -> str:
             **kwargs,
         },
     )
+    if subevent is not None:
+        return f"{url}?{urlencode({'subevent': subevent.pk})}"
+    return url

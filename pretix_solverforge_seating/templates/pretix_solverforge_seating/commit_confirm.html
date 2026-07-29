@@ -37,9 +37,8 @@
             <span class="fa fa-check" aria-hidden="true"></span>
             {% trans "Commit real seat assignments" %}
         </button>
-        <a class="btn btn-default" href="{% url "plugins:pretix_solverforge_seating:index" organizer=request.organizer.slug event=request.event.slug %}">
+        <a class="btn btn-default" href="{% url "plugins:pretix_solverforge_seating:index" organizer=request.organizer.slug event=request.event.slug %}{% if subevent %}?subevent={{ subevent.pk }}{% endif %}">
             {% trans "Cancel" %}
         </a>
     </form>
 {% endblock %}
-

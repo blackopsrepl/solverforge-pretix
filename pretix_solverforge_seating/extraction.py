@@ -14,6 +14,7 @@ from pretix.base.models import (
     Order,
     OrderPosition,
     QuestionAnswer,
+    SubEvent,
     Voucher,
 )
 
@@ -37,17 +38,30 @@ def load_planning_snapshot(
     event: Event,
     configuration: PlannerConfiguration,
     *,
+    subevent: SubEvent | None = None,
     reject_orphan_locks: bool = True,
 ) -> PlanningSnapshot:
     if event.has_subevents:
-        raise PlanningInputError(
-            "Event series and per-date seating plans are not supported yet. "
-            "No adjacency assumptions were made."
-        )
-    if event.seating_plan_id is None:
-        raise PlanningInputError("This event has no seating plan.")
+        if subevent is None:
+            raise PlanningInputError(
+                "Select one date in this event series before planning seats."
+            )
+        if subevent.event_id != event.pk:
+            raise PlanningInputError(
+                "The selected date does not belong to this event series."
+            )
+        seating_plan_id = subevent.seating_plan_id
+    else:
+        if subevent is not None:
+            raise PlanningInputError(
+                "A date was supplied for an event that is not an event series."
+            )
+        seating_plan_id = event.seating_plan_id
+    if seating_plan_id is None:
+        scope_name = "selected date" if subevent is not None else "event"
+        raise PlanningInputError(f"This {scope_name} has no seating plan.")
     seat_models = list(
-        event.seats.filter(subevent=None)
+        event.seats.filter(subevent=subevent)
         .select_related("product")
         .order_by("sorting_rank", "seat_guid", "pk")
     )
@@ -63,7 +77,7 @@ def load_planning_snapshot(
             order__status__in=(Order.STATUS_PENDING, Order.STATUS_PAID),
             canceled=False,
             item_id__in=seat_product_ids,
-            subevent=None,
+            subevent=subevent,
         )
         .select_related("order", "item", "seat")
         .prefetch_related(
@@ -88,7 +102,7 @@ def load_planning_snapshot(
             order__status__in=(Order.STATUS_PENDING, Order.STATUS_PAID),
             canceled=False,
             seat__isnull=False,
-            subevent=None,
+            subevent=subevent,
         )
         .select_related("order", "seat")
         .order_by("pk")
@@ -107,7 +121,7 @@ def load_planning_snapshot(
     carts = list(
         CartPosition.objects.filter(
             event=event,
-            subevent=None,
+            subevent=subevent,
             seat__isnull=False,
             expires__gte=timestamp,
         )
@@ -117,7 +131,7 @@ def load_planning_snapshot(
     vouchers = list(
         Voucher.objects.filter(
             event=event,
-            subevent=None,
+            subevent=subevent,
             seat__isnull=False,
             redeemed__lt=F("max_usages"),
         )
@@ -161,7 +175,10 @@ def load_planning_snapshot(
     )
 
     locks = list(
-        PlacementLock.objects.filter(event=event).order_by("party_key", "pk")
+        PlacementLock.objects.filter(
+            event=event,
+            subevent=subevent,
+        ).order_by("party_key", "pk")
     )
     lock_by_party = {lock.party_key: lock for lock in locks}
     grouped: dict[tuple[int, int], list[OrderPosition]] = defaultdict(list)
@@ -173,7 +190,12 @@ def load_planning_snapshot(
     for _, group in sorted(grouped.items()):
         first = group[0]
         position_ids = tuple(position.pk for position in group)
-        party_key = _party_key(first.order_id, first.item_id, position_ids)
+        party_key = _party_key(
+            first.order_id,
+            first.item_id,
+            position_ids,
+            subevent_id=subevent.pk if subevent is not None else None,
+        )
         lock = lock_by_party.get(party_key)
         locked_seat_guids: tuple[str, ...] = ()
         if lock is not None:
@@ -249,7 +271,14 @@ def load_planning_snapshot(
     canonical = {
         "event": {
             "id": event.pk,
-            "seating_plan_id": event.seating_plan_id,
+            "has_subevents": event.has_subevents,
+            "subevent_id": subevent.pk if subevent is not None else None,
+            "subevent_last_modified": (
+                subevent.last_modified.isoformat()
+                if subevent is not None
+                else None
+            ),
+            "seating_plan_id": seating_plan_id,
             "seating_minimal_distance": event.settings.seating_minimal_distance,
             "seating_distance_within_row": event.settings.seating_distance_within_row,
         },
@@ -334,6 +363,7 @@ def load_planning_snapshot(
     }
     return PlanningSnapshot(
         event_id=event.pk,
+        subevent_id=subevent.pk if subevent is not None else None,
         minimum_seat_distance=float(event.settings.seating_minimal_distance),
         distance_within_row=bool(event.settings.seating_distance_within_row),
         seats=seat_facts,
@@ -343,9 +373,16 @@ def load_planning_snapshot(
     )
 
 
-def _party_key(order_id: int, item_id: int, position_ids: tuple[int, ...]) -> str:
+def _party_key(
+    order_id: int,
+    item_id: int,
+    position_ids: tuple[int, ...],
+    *,
+    subevent_id: int | None,
+) -> str:
     joined = "-".join(str(position_id) for position_id in position_ids)
-    return f"order-{order_id}:item-{item_id}:positions-{joined}"
+    key = f"order-{order_id}:item-{item_id}:positions-{joined}"
+    return f"subevent-{subevent_id}:{key}" if subevent_id is not None else key
 
 
 def _question_is_true(

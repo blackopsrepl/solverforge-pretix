@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 from django.db import transaction
 from django.utils.timezone import now
-from pretix.base.models import Event, Order, OrderPosition, Seat
+from pretix.base.models import Event, Order, OrderPosition, Seat, SubEvent
 from pretix.base.services.orders import OrderChangeManager
 
 from .domain import CommitError, StaleProposalError
@@ -47,7 +47,7 @@ def _commit_proposal_atomic(
     locked_event = Event.objects.select_for_update().get(pk=event.pk)
     proposal = (
         SeatingProposal.objects.select_for_update()
-        .select_related("event")
+        .select_related("event", "subevent")
         .get(pk=proposal_id, event=locked_event)
     )
     if proposal.status == SeatingProposal.Status.COMMITTED:
@@ -58,12 +58,13 @@ def _commit_proposal_atomic(
             f"A {proposal.get_status_display().lower()} proposal cannot be committed."
         )
 
+    subevent = _lock_proposal_subevent(locked_event, proposal)
     configuration = PlannerConfiguration.objects.select_for_update().get(
         event=locked_event
     )
     list(
         PlacementLock.objects.select_for_update()
-        .filter(event=locked_event)
+        .filter(event=locked_event, subevent=subevent)
         .values_list("pk", flat=True)
     )
     position_ids, seat_ids, order_ids = _proposal_ids(proposal)
@@ -77,13 +78,21 @@ def _commit_proposal_atomic(
         position.pk: position
         for position in OrderPosition.objects.select_for_update()
         .select_related("order", "seat")
-        .filter(pk__in=position_ids, order__event=locked_event)
+        .filter(
+            pk__in=position_ids,
+            order__event=locked_event,
+            subevent=subevent,
+        )
         .order_by("order_id", "positionid", "pk")
     }
     seats = {
         seat.pk: seat
         for seat in Seat.objects.select_for_update()
-        .filter(pk__in=seat_ids, event=locked_event)
+        .filter(
+            pk__in=seat_ids,
+            event=locked_event,
+            subevent=subevent,
+        )
         .order_by("pk")
     }
     if (
@@ -95,7 +104,11 @@ def _commit_proposal_atomic(
             "A proposed order position, order, or seat no longer exists."
         )
 
-    snapshot = load_planning_snapshot(locked_event, configuration)
+    snapshot = load_planning_snapshot(
+        locked_event,
+        configuration,
+        subevent=subevent,
+    )
     if snapshot.fingerprint != proposal.snapshot_fingerprint:
         raise StaleProposalError(
             "Orders, seats, reservations, answers, configuration, or locks changed "
@@ -131,6 +144,7 @@ def _commit_proposal_atomic(
         user=user,
         data={
             "proposal": proposal.pk,
+            "subevent": subevent.pk if subevent is not None else None,
             "changed_positions": len(changed_positions),
             "score": proposal.score,
         },
@@ -139,6 +153,31 @@ def _commit_proposal_atomic(
         changed_positions=len(changed_positions),
         already_committed=False,
     )
+
+
+def _lock_proposal_subevent(
+    event: Event,
+    proposal: SeatingProposal,
+) -> SubEvent | None:
+    if event.has_subevents:
+        if proposal.subevent_id is None:
+            raise StaleProposalError(
+                "This event is now a series, but the proposal has no event date."
+            )
+        try:
+            return SubEvent.objects.select_for_update().get(
+                pk=proposal.subevent_id,
+                event=event,
+            )
+        except SubEvent.DoesNotExist as exc:
+            raise StaleProposalError(
+                "The proposal event date no longer exists."
+            ) from exc
+    if proposal.subevent_id is not None:
+        raise StaleProposalError(
+            "This event is no longer a series, but the proposal targets a date."
+        )
+    return None
 
 
 def _proposal_ids(
@@ -251,6 +290,7 @@ def _verify_committed_assignments(
         OrderPosition.objects.filter(
             pk__in=expected,
             order__event=event,
+            subevent=proposal.subevent,
         ).values_list("pk", "seat_id")
     )
     if actual != expected:

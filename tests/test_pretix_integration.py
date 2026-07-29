@@ -8,7 +8,10 @@ from pretix.base.services.orders import OrderChangeManager, OrderError
 
 from pretix_solverforge_seating.commit import commit_proposal
 from pretix_solverforge_seating.demo import create_demo
-from pretix_solverforge_seating.domain import StaleProposalError
+from pretix_solverforge_seating.domain import (
+    PlanningInputError,
+    StaleProposalError,
+)
 from pretix_solverforge_seating.extraction import load_planning_snapshot
 from pretix_solverforge_seating.models import (
     PlannerConfiguration,
@@ -19,12 +22,22 @@ from pretix_solverforge_seating.proposals import (
     lock_existing_placement,
 )
 
+from .helpers import convert_demo_to_series
 
-def _fast_proposal(demo: object) -> SeatingProposal:
+
+def _fast_proposal(
+    demo: object,
+    *,
+    subevent: object | None = None,
+) -> SeatingProposal:
     configuration = PlannerConfiguration.objects.get(event=demo.event)
     configuration.step_count_limit = 80
     configuration.save(update_fields=("step_count_limit", "updated_at"))
-    return generate_proposal(demo.event, demo.user)
+    return generate_proposal(
+        demo.event,
+        demo.user,
+        subevent=subevent,
+    )
 
 
 @pytest.mark.django_db
@@ -69,6 +82,55 @@ def test_nonzero_minimum_seat_distance_is_planned_natively(demo: object) -> None
         proposal.score_explanation["hard"]["minimum_distance_between_parties"]
         == 0
     )
+
+
+@pytest.mark.django_db
+def test_event_series_date_is_solved_and_committed_through_pretix(
+    demo: object,
+) -> None:
+    subevent = convert_demo_to_series(demo)
+    configuration = PlannerConfiguration.objects.get(event=demo.event)
+
+    with pytest.raises(PlanningInputError, match="Select one date"):
+        load_planning_snapshot(demo.event, configuration)
+
+    snapshot = load_planning_snapshot(
+        demo.event,
+        configuration,
+        subevent=subevent,
+    )
+    proposal = _fast_proposal(demo, subevent=subevent)
+    expected = {
+        int(position_id): int(seat_id)
+        for assignment in proposal.assignments
+        for position_id, seat_id in zip(
+            assignment["position_ids"],
+            assignment["seat_ids"],
+            strict=True,
+        )
+    }
+
+    result = commit_proposal(
+        proposal.pk,
+        event=demo.event,
+        user=demo.user,
+    )
+    actual = dict(
+        OrderPosition.objects.filter(
+            pk__in=expected,
+            subevent=subevent,
+        ).values_list("pk", "seat_id")
+    )
+
+    assert snapshot.subevent_id == subevent.pk
+    assert snapshot.summary["positions"] == 15
+    assert proposal.subevent_id == subevent.pk
+    assert all(
+        assignment["party_key"].startswith(f"subevent-{subevent.pk}:")
+        for assignment in proposal.assignments
+    )
+    assert result.changed_positions > 0
+    assert actual == expected
 
 
 @pytest.mark.django_db

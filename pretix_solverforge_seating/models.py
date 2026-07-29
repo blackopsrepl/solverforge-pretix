@@ -1,7 +1,7 @@
 from django.conf import settings
 from django.db import models
 from django.utils.translation import gettext_lazy as _
-from pretix.base.models import Event
+from pretix.base.models import Event, SubEvent
 
 
 class PlannerConfiguration(models.Model):
@@ -31,6 +31,13 @@ class PlannerConfiguration(models.Model):
 class PlacementLock(models.Model):
     event = models.ForeignKey(
         Event,
+        on_delete=models.CASCADE,
+        related_name="solverforge_seating_locks",
+    )
+    subevent = models.ForeignKey(
+        SubEvent,
+        null=True,
+        blank=True,
         on_delete=models.CASCADE,
         related_name="solverforge_seating_locks",
     )
@@ -70,6 +77,13 @@ class SeatingProposal(models.Model):
 
     event = models.ForeignKey(
         Event,
+        on_delete=models.CASCADE,
+        related_name="solverforge_seating_proposals",
+    )
+    subevent = models.ForeignKey(
+        SubEvent,
+        null=True,
+        blank=True,
         on_delete=models.CASCADE,
         related_name="solverforge_seating_proposals",
     )

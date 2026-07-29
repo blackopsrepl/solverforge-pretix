@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Any, cast
 
 from django.db import transaction
-from pretix.base.models import Event
+from pretix.base.models import Event, SubEvent
 
 from .domain import (
     InfeasiblePlanError,
@@ -34,9 +34,18 @@ class ProposalMaterialization:
     plan: SeatPlanningSolution
 
 
-def generate_proposal(event: Event, user: object | None) -> SeatingProposal:
+def generate_proposal(
+    event: Event,
+    user: object | None,
+    *,
+    subevent: SubEvent | None = None,
+) -> SeatingProposal:
     configuration, _ = PlannerConfiguration.objects.get_or_create(event=event)
-    snapshot = load_planning_snapshot(event, configuration)
+    snapshot = load_planning_snapshot(
+        event,
+        configuration,
+        subevent=subevent,
+    )
     blocks = generate_contiguous_blocks(
         snapshot.seats,
         {party.size for party in snapshot.parties},
@@ -67,7 +76,11 @@ def generate_proposal(event: Event, user: object | None) -> SeatingProposal:
             "SolverForge score explanation does not match the native score."
         )
 
-    current = load_planning_snapshot(event, configuration)
+    current = load_planning_snapshot(
+        event,
+        configuration,
+        subevent=subevent,
+    )
     if current.fingerprint != snapshot.fingerprint:
         raise StaleProposalError(
             "Orders, seats, reservations, answers, configuration, or locks changed "
@@ -81,10 +94,12 @@ def generate_proposal(event: Event, user: object | None) -> SeatingProposal:
     with transaction.atomic():
         SeatingProposal.objects.filter(
             event=event,
+            subevent=subevent,
             status=SeatingProposal.Status.PROPOSED,
         ).update(status=SeatingProposal.Status.STALE)
         proposal = SeatingProposal.objects.create(
             event=event,
+            subevent=subevent,
             status=SeatingProposal.Status.PROPOSED,
             snapshot_fingerprint=snapshot.fingerprint,
             assignments=assignment_payload(solved),
@@ -99,6 +114,7 @@ def generate_proposal(event: Event, user: object | None) -> SeatingProposal:
             user=user,
             data={
                 "proposal": proposal.pk,
+                "subevent": subevent.pk if subevent is not None else None,
                 "parties": snapshot.summary["parties"],
                 "positions": snapshot.summary["positions"],
                 "score": score,
@@ -115,6 +131,10 @@ def materialize_proposal(
 ) -> ProposalMaterialization:
     if proposal.event_id != event.pk:
         raise InfeasiblePlanError("The proposal belongs to a different event.")
+    if proposal.subevent_id != snapshot.subevent_id:
+        raise InfeasiblePlanError(
+            "The proposal belongs to a different event date."
+        )
     blocks = generate_contiguous_blocks(
         snapshot.seats,
         {party.size for party in snapshot.parties},
@@ -218,6 +238,7 @@ def lock_proposed_placement(
             raise StaleProposalError("Only a current proposal can be locked.")
         placement_lock, _ = PlacementLock.objects.update_or_create(
             event=locked_proposal.event,
+            subevent=locked_proposal.subevent,
             party_key=party_key,
             defaults={
                 "position_ids": list(assignment["position_ids"]),
@@ -244,9 +265,15 @@ def lock_existing_placement(
     event: Event,
     party_key: str,
     user: object | None,
+    *,
+    subevent: SubEvent | None = None,
 ) -> PlacementLock:
     configuration, _ = PlannerConfiguration.objects.get_or_create(event=event)
-    snapshot = load_planning_snapshot(event, configuration)
+    snapshot = load_planning_snapshot(
+        event,
+        configuration,
+        subevent=subevent,
+    )
     party = next(
         (value for value in snapshot.parties if value.key == party_key),
         None,
@@ -308,6 +335,7 @@ def lock_existing_placement(
     with transaction.atomic():
         placement_lock, _ = PlacementLock.objects.update_or_create(
             event=event,
+            subevent=subevent,
             party_key=party.key,
             defaults={
                 "position_ids": list(party.position_ids),
@@ -317,6 +345,7 @@ def lock_existing_placement(
         )
         SeatingProposal.objects.filter(
             event=event,
+            subevent=subevent,
             status=SeatingProposal.Status.PROPOSED,
         ).update(status=SeatingProposal.Status.STALE)
         event.log_action(
@@ -324,6 +353,7 @@ def lock_existing_placement(
             user=user,
             data={
                 "party_key": party.key,
+                "subevent": subevent.pk if subevent is not None else None,
                 "locked": True,
                 "source": "existing_assignment",
                 "seat_guids": list(party.current_seat_guids),
@@ -335,6 +365,7 @@ def lock_existing_placement(
 def unlock_placement(
     event: Event,
     *,
+    subevent: SubEvent | None = None,
     party_key: str | None = None,
     lock_id: int | None = None,
     user: object | None,
@@ -342,7 +373,10 @@ def unlock_placement(
     if party_key is None and lock_id is None:
         raise ValueError("party_key or lock_id is required")
     with transaction.atomic():
-        locks = PlacementLock.objects.select_for_update().filter(event=event)
+        locks = PlacementLock.objects.select_for_update().filter(
+            event=event,
+            subevent=subevent,
+        )
         locks = locks.filter(pk=lock_id) if lock_id is not None else locks.filter(
             party_key=party_key
         )
@@ -361,6 +395,7 @@ def unlock_placement(
         lock.delete()
         SeatingProposal.objects.filter(
             event=event,
+            subevent=subevent,
             status=SeatingProposal.Status.PROPOSED,
         ).update(status=SeatingProposal.Status.STALE)
     return True

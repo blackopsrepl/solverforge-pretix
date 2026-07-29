@@ -18,7 +18,21 @@
         </h1>
     </div>
 
-    {% if input_error %}
+    {% if request.event.has_subevents %}
+        <form class="form-inline helper-space-below" action="" method="get">
+            <fieldset>
+                <legend class="h4">{% trans "Event date" %}</legend>
+                {% include "pretixcontrol/event/fragment_subevent_choice_simple.html" %}
+            </fieldset>
+        </form>
+    {% endif %}
+
+    {% if not scope_ready %}
+        <div class="alert alert-info" role="status">
+            <span class="fa fa-calendar" aria-hidden="true"></span>
+            {% trans "Select one date in this event series to plan its seating." %}
+        </div>
+    {% elif input_error %}
         <div class="alert alert-danger" role="alert">
             <span class="fa fa-exclamation-triangle" aria-hidden="true"></span>
             <strong>{% trans "Planning is unavailable:" %}</strong> {{ input_error }}
@@ -97,9 +111,12 @@
     {% endif %}
 
     <div class="btn-toolbar sf-actions" role="toolbar" aria-label="{% trans "Planner actions" %}">
-        {% if can_write and not input_error %}
+        {% if can_write and scope_ready and not input_error %}
             <form method="post" action="{% url "plugins:pretix_solverforge_seating:generate" organizer=request.organizer.slug event=request.event.slug %}">
                 {% csrf_token %}
+                {% if subevent %}
+                    <input type="hidden" name="subevent" value="{{ subevent.pk }}">
+                {% endif %}
                 <button class="btn btn-primary" type="submit">
                     <span class="fa fa-magic" aria-hidden="true"></span>
                     {% if proposal %}{% trans "Replan" %}{% else %}{% trans "Generate proposal" %}{% endif %}
@@ -309,6 +326,9 @@
                                     {% elif can_write %}
                                         <form method="post" action="{% url "plugins:pretix_solverforge_seating:lock.existing" organizer=request.organizer.slug event=request.event.slug %}">
                                             {% csrf_token %}
+                                            {% if subevent %}
+                                                <input type="hidden" name="subevent" value="{{ subevent.pk }}">
+                                            {% endif %}
                                             <input type="hidden" name="party_key" value="{{ party.party_key }}">
                                             <button class="btn btn-xs btn-default" type="submit">
                                                 <span class="fa fa-lock" aria-hidden="true"></span>
@@ -350,6 +370,9 @@
                                     {% if can_write %}
                                         <form method="post" action="{% url "plugins:pretix_solverforge_seating:unlock" organizer=request.organizer.slug event=request.event.slug %}">
                                             {% csrf_token %}
+                                            {% if subevent %}
+                                                <input type="hidden" name="subevent" value="{{ subevent.pk }}">
+                                            {% endif %}
                                             <input type="hidden" name="lock_id" value="{{ lock.pk }}">
                                             <button class="btn btn-xs btn-default" type="submit">
                                                 <span class="fa fa-unlock" aria-hidden="true"></span>
