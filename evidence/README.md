@@ -5,13 +5,15 @@ The process ran outside the source tree from a clean CPython 3.14.6 virtual
 environment containing the built `solverforge-pretix` wheel and the exact
 `solverforge` 0.6.4 CPython wheel. The loaded native module was
 `solverforge._native`; the binding source pins SolverForge core 0.19.2 exactly.
+The demo used pretix minimum seat distance `31` with distance enforced within
+each row.
 
 | Evidence | What it proves |
 | --- | --- |
 | [`before-solve.png`](screenshots/before-solve.png) | Native pretix navigation, 48-seat map, live counts, blocked/occupied seats, poor existing assignments, and the original organizer lock before any proposal exists. |
-| [`after-solve.png`](screenshots/after-solve.png) | Preview-only proposal for all 15 positions, party colors, change explanations, and native score `0 hard / 329 soft`. |
+| [`after-solve.png`](screenshots/after-solve.png) | Preview-only proposal for all 15 positions, party colors, change explanations, zero minimum-distance violations, and native score `0 hard / 237 soft`. |
 | [`after-lock-replan.png`](screenshots/after-lock-replan.png) | SF003 locked at `A-07`–`A-09`, replanned without moving it, alongside the original wheelchair lock. |
-| [`after-commit.png`](screenshots/after-commit.png) | Explicit commit success for 12 changed positions, all 15 committed seats, zero hard violations, and persisted pretix assignments on the same map. |
+| [`after-commit.png`](screenshots/after-commit.png) | Explicit commit success for 8 changed positions, all 15 committed seats, zero hard violations, and persisted pretix assignments on the same map. |
 | [`pretix-order-after-commit.png`](screenshots/pretix-order-after-commit.png) | Ordinary pretix order detail for SF003 showing `Stalls, Row A, Seat 7`, `8`, and `9`, plus pretix's own order-change history. |
 | [`after-restart.png`](screenshots/after-restart.png) | The same ordinary pretix order detail loaded after stopping and restarting the web process. |
 
