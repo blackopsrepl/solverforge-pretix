@@ -1,0 +1,81 @@
+[build-system]
+requires = ["setuptools==80.9.0", "wheel==0.46.3"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "solverforge-pretix"
+version = "0.1.0"
+description = "Native SolverForge seat planning for pretix"
+readme = "README.md"
+requires-python = ">=3.14,<3.15"
+license = "AGPL-3.0-or-later"
+authors = [{ name = "SolverForge contributors" }]
+keywords = ["pretix", "seating", "optimization", "solverforge"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: Web Environment",
+  "Framework :: Django :: 5.2",
+  "Programming Language :: Python :: 3.14",
+  "Topic :: Office/Business",
+]
+dependencies = [
+  "pretix==2026.6.1",
+  "solverforge==0.6.4",
+]
+
+[project.urls]
+Homepage = "https://solverforge.org/"
+Repository = "https://github.com/solverforge/solverforge-pretix"
+Issues = "https://github.com/solverforge/solverforge-pretix/issues"
+
+[project.entry-points."pretix.plugin"]
+pretix_solverforge_seating = "pretix_solverforge_seating"
+
+[project.optional-dependencies]
+dev = [
+  "build==1.3.0",
+  "mypy==1.19.1",
+  "pytest==9.1.0",
+  "pytest-django==4.11.1",
+  "ruff==0.16.0",
+  "twine==6.2.0",
+]
+browser = [
+  "playwright==1.57.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["pretix_solverforge_seating*"]
+
+[tool.setuptools.package-data]
+pretix_solverforge_seating = [
+  "templates/**/*.html",
+  "static/**/*.css",
+  "static/**/*.js",
+  "locale/**/*.mo",
+]
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "tests.settings"
+addopts = "-ra --strict-config --strict-markers"
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py314"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["B", "DJ", "E", "F", "I", "UP"]
+
+[tool.ruff.lint.per-file-ignores]
+"pretix_solverforge_seating/migrations/*.py" = ["E501"]
+
+[tool.mypy]
+python_version = "3.14"
+strict = true
+files = ["pretix_solverforge_seating"]
+ignore_missing_imports = true
+allow_subclassing_any = true
+disallow_untyped_decorators = false
+warn_return_any = false
+exclude = ["pretix_solverforge_seating/migrations/"]
