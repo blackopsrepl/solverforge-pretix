@@ -107,8 +107,8 @@ def create_demo(*, password: str = DEMO_USER_PASSWORD) -> DemoResult:
             plugins="",
         )
         event.settings.set("seating_choice", False)
-        event.settings.set("seating_minimal_distance", 0)
-        event.settings.set("seating_distance_within_row", False)
+        event.settings.set("seating_minimal_distance", 31)
+        event.settings.set("seating_distance_within_row", True)
         event.enable_plugin("pretix_solverforge_seating")
         event.save(update_fields=("plugins", "seating_plan"))
 
