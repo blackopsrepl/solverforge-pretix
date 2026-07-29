@@ -76,16 +76,17 @@ PY
 1. Disable customer seat selection in the pretix event and sell normal
    admission positions.
 2. Open **Orders → SolverForge Seat Planner**.
-3. Review the live party, seat, blocked, occupied, and lock counts.
-4. Select **Generate proposal**. This runs SolverForge in the pretix process;
+3. For an event series, select the concrete event date.
+4. Review the live party, seat, blocked, occupied, and lock counts.
+5. Select **Generate proposal**. This runs SolverForge in the pretix process;
    it does not write any seat assignment.
-5. Review the visual map, hard/soft score explanation, and every proposed
+6. Review the visual map, hard/soft score explanation, and every proposed
    change.
-6. Lock a proposed placement, or promote a valid existing pretix assignment to
+7. Lock a proposed placement, or promote a valid existing pretix assignment to
    a hard lock, then select **Replan**.
-7. Select **Commit proposal…**, review the validation contract, and tick the
+8. Select **Commit proposal…**, review the validation contract, and tick the
    explicit confirmation checkbox.
-8. The plugin recomputes the live snapshot under database locks, rescores the
+9. The plugin recomputes the live snapshot under database locks, rescores the
    persisted blocks with native SolverForge, and applies every change through
    pretix `OrderChangeManager.change_seat`.
 
@@ -101,7 +102,8 @@ This is a standard event-level pretix Django plugin:
 - Event navigation, permissions, views, templates, and static assets use the
   pretix control-panel stack.
 - `PlannerConfiguration`, `PlacementLock`, and `SeatingProposal` are the only
-  plugin-owned database models.
+  plugin-owned database models. Locks and proposals are scoped to a concrete
+  subevent date when used in an event series.
 - `extraction.py` reads live `Seat`, `Order`, `OrderPosition`,
   `QuestionAnswer`, cart reservation, voucher reservation, and lock records.
 - `domain.py` validates row geometry and generates exact contiguous
@@ -126,7 +128,7 @@ Solve and preview never modify `OrderPosition.seat`.
 
 - Every concrete pretix seat: database ID, stable seat GUID, zone, row, seat
   number, coordinates, sorting rank, mapped product, blocked state, occupancy,
-  accessibility marker, and aisle marker.
+  accessibility marker, aisle marker, and live pretix distance conflicts.
 - Active paid and pending admission positions.
 - Attendee requirements and preferences derived from configured question
   identifiers, including the exact order positions carrying wheelchair answers.
@@ -158,6 +160,9 @@ no quantity, integer-programming, or mixed-integer variables.
 - Organizer locks preserve the exact position-to-seat mapping, not only the
   selected seat set.
 - Selected blocks do not overlap.
+- Blocks assigned to different orders satisfy pretix's strict Euclidean
+  minimum-seat-distance threshold. Positions from one order retain pretix's
+  same-order exemption, and the within-row setting is honored exactly.
 - The persisted proposal is not committable unless native SolverForge reports
   zero hard violations and the independent explanation also totals zero.
 
@@ -224,6 +229,10 @@ matched case-insensitively after punctuation and whitespace normalization.
 
 Any configuration change makes a current proposal stale.
 
+For event series, this configuration is event-wide while locks, snapshots,
+proposals, reservations, seat records, and commits are scoped to the selected
+date.
+
 ## Deterministic demo data
 
 `solverforge_seating_demo` creates:
@@ -235,6 +244,7 @@ Any configuration change makes a current proposal stale.
 - wheelchair and companion answers;
 - front, rear, aisle, and Stalls-zone preferences;
 - blocked seats `B-04` and `D-08`;
+- a nonzero 31-coordinate minimum distance enforced within each row;
 - a hard-locked wheelchair pair at `A-01` and `A-02`;
 - fragmented or low-quality existing assignments for visible improvement.
 
@@ -261,9 +271,10 @@ node --check pretix_solverforge_seating/static/pretix_solverforge_seating/planne
 
 The focused suite covers block generation, product and size compatibility,
 overlap, accessibility/companion requirements, blocked and occupied seats,
-locks, preference scoring, change and swap moves, fixed-seed determinism,
-staleness, idempotency, rollback, real order-position service updates, plugin
-discovery/navigation, and permissions.
+locks, pretix minimum distance, event-series date isolation, preference
+scoring, change and swap moves, fixed-seed determinism, staleness, idempotency,
+rollback, real order-position service updates, plugin discovery/navigation,
+and permissions.
 
 ## Browser proof
 
@@ -296,26 +307,24 @@ For the persistence check, stop the server with `Ctrl-C`, run the same
 The recorded evidence and its interpretation are documented in
 [`evidence/README.md`](evidence/README.md).
 
-## Known limitations
+## Supported scope
 
-- Event series and subevent-specific seating plans are rejected.
-- Events with a nonzero pretix minimum seat distance are rejected because
-  pairwise distance between newly assigned blocks is not modeled yet.
-- Only horizontal row-based layouts with concrete x/y coordinates are
-  supported. Missing coordinates, duplicate x-coordinates, nonhorizontal rows,
-  tables, and arbitrary free-form adjacency are rejected instead of guessed.
-- Party identity is currently one order plus one pretix product. The plugin
-  does not yet expose custom cross-order household/group identifiers.
-- Accessibility and aisle semantics are organizer-configured seat GUID lists;
-  pretix seating plans do not provide universal native flags for these
-  concepts.
-- Solving is synchronous in the control request. Large venues should move the
-  same in-process SolverForge call to pretix's worker mechanism.
-- The isolated-seat rule only scores provable single-seat gaps. It does not
-  guess at arbitrary unusable shapes.
-- The development baseline uses SQLite. Production should use a pretix
-  supported transactional database whose row locks provide the intended
-  concurrent-commit behavior.
+The planner supports both ordinary events and event-series dates, including
+pretix's nonzero minimum-seat-distance settings. Its deliberate topology
+boundary is horizontal row seating with concrete coordinates. Tables,
+nonhorizontal rows, and arbitrary free-form adjacency are rejected because
+pretix does not provide an unambiguous contiguous-block graph for them.
+
+A party is one order plus one compatible pretix product; custom cross-order
+household identifiers are not exposed. Accessibility and aisle markers are
+configured by seat GUID because pretix has no universal native flags for those
+semantics. The isolated-seat score remains conservative and only penalizes
+provable one-seat gaps.
+
+Solves run synchronously in the pretix process with a configured step bound.
+The included SQLite configuration is for development; production deployments
+should use a pretix-supported transactional database so row locks provide the
+intended concurrent-commit behavior.
 
 ## License
 
