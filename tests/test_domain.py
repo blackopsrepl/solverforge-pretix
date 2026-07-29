@@ -7,6 +7,7 @@ from pretix_solverforge_seating.domain import (
     UnsupportedLayoutError,
     find_exact_block,
     generate_contiguous_blocks,
+    with_distance_conflicts,
 )
 
 from .helpers import row_seats
@@ -61,6 +62,33 @@ def test_blocks_preserve_party_size_product_and_availability_facts() -> None:
     assert all(len(set(block.product_ids)) == 1 for block in blocks)
     assert find_exact_block(blocks, ("A-1", "A-2")).blocked_count == 1
     assert find_exact_block(blocks, ("B-2", "B-3")).occupied_count == 1
+
+
+def test_distance_conflicts_match_pretix_order_and_row_semantics() -> None:
+    seats = (
+        *row_seats(count=3),
+        *row_seats(count=3, row="B", y=1.5, id_offset=10),
+    )
+
+    all_rows = with_distance_conflicts(
+        seats,
+        occupied_order_ids_by_seat={2: {9}},
+        reserved_seat_ids={3},
+        minimum_distance=1.2,
+        within_row=False,
+    )
+    within_rows = with_distance_conflicts(
+        seats,
+        occupied_order_ids_by_seat={2: {9}},
+        reserved_seat_ids={3},
+        minimum_distance=1.2,
+        within_row=True,
+    )
+
+    assert all_rows[0].distance_conflicting_order_ids == (9,)
+    assert all_rows[1].distance_conflicting_reservation is True
+    assert all_rows[3].distance_conflicting_order_ids == (9,)
+    assert within_rows[3].distance_conflicting_order_ids == ()
 
 
 @pytest.mark.parametrize(

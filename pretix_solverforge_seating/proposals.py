@@ -49,6 +49,8 @@ def generate_proposal(event: Event, user: object | None) -> SeatingProposal:
         snapshot.parties,
         blocks,
         random_seed=configuration.random_seed,
+        minimum_seat_distance=snapshot.minimum_seat_distance,
+        distance_within_row=snapshot.distance_within_row,
     )
     solved = solve_seating_plan(
         plan,
@@ -126,6 +128,8 @@ def materialize_proposal(
         blocks,
         random_seed=configuration.random_seed,
         preserve_existing_initially=False,
+        minimum_seat_distance=snapshot.minimum_seat_distance,
+        distance_within_row=snapshot.distance_within_row,
     )
     payload_by_key = {
         str(assignment["party_key"]): assignment

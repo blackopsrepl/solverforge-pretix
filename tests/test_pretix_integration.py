@@ -8,7 +8,7 @@ from pretix.base.services.orders import OrderChangeManager, OrderError
 
 from pretix_solverforge_seating.commit import commit_proposal
 from pretix_solverforge_seating.demo import create_demo
-from pretix_solverforge_seating.domain import PlanningInputError, StaleProposalError
+from pretix_solverforge_seating.domain import StaleProposalError
 from pretix_solverforge_seating.extraction import load_planning_snapshot
 from pretix_solverforge_seating.models import (
     PlannerConfiguration,
@@ -54,12 +54,21 @@ def test_demo_uses_real_pretix_seats_orders_answers_blocks_and_locks(demo: objec
 
 
 @pytest.mark.django_db
-def test_nonzero_minimum_seat_distance_is_rejected_honestly(demo: object) -> None:
+def test_nonzero_minimum_seat_distance_is_planned_natively(demo: object) -> None:
     configuration = PlannerConfiguration.objects.get(event=demo.event)
-    demo.event.settings.set("seating_minimal_distance", 1)
+    demo.event.settings.set("seating_minimal_distance", 31)
+    demo.event.settings.set("seating_distance_within_row", True)
 
-    with pytest.raises(PlanningInputError, match="minimum seat distance"):
-        load_planning_snapshot(demo.event, configuration)
+    snapshot = load_planning_snapshot(demo.event, configuration)
+    proposal = generate_proposal(demo.event, demo.user)
+
+    assert snapshot.minimum_seat_distance == 31
+    assert snapshot.distance_within_row is True
+    assert proposal.score["levels"][0] == 0
+    assert (
+        proposal.score_explanation["hard"]["minimum_distance_between_parties"]
+        == 0
+    )
 
 
 @pytest.mark.django_db

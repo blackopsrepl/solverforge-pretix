@@ -189,6 +189,69 @@ def test_overlap_and_organizer_lock_are_hard_constraints() -> None:
     assert Solver.analyze(plan)["levels"][0] == -3
 
 
+def test_minimum_distance_separates_different_orders_but_not_one_order() -> None:
+    blocks = generate_contiguous_blocks(row_seats(count=7), {2})
+    different_orders = build_solver_plan(
+        (
+            party("left", size=2, order_id=1),
+            party("right", size=2, order_id=2),
+        ),
+        blocks,
+        random_seed=4,
+        minimum_seat_distance=2,
+        distance_within_row=True,
+    )
+    assignments = sorted(
+        different_orders.party_assignments,
+        key=lambda assignment: assignment.party_key,
+    )
+    assignments[0].seat_block_idx = next(
+        block.idx for block in blocks if block.seat_guids == ("A-1", "A-2")
+    )
+    assignments[1].seat_block_idx = next(
+        block.idx for block in blocks if block.seat_guids == ("A-3", "A-4")
+    )
+
+    assert (
+        explain_score(different_orders)["hard"][
+            "minimum_distance_between_parties"
+        ]
+        > 0
+    )
+    assert Solver.analyze(different_orders)["levels"][0] < 0
+
+    solved = solve_seating_plan(
+        different_orders,
+        random_seed=4,
+        step_count_limit=40,
+        include_construction=False,
+    )
+    assert solved.score["levels"][0] == 0
+
+    one_order = build_solver_plan(
+        (
+            party("category-one", size=2, product_id=1, order_id=7),
+            party("category-two", size=2, product_id=1, order_id=7),
+        ),
+        blocks,
+        random_seed=4,
+        minimum_seat_distance=2,
+        distance_within_row=True,
+    )
+    same_order_assignments = sorted(
+        one_order.party_assignments,
+        key=lambda assignment: assignment.party_key,
+    )
+    same_order_assignments[0].seat_block_idx = assignments[0].seat_block_idx
+    same_order_assignments[1].seat_block_idx = next(
+        block.idx for block in blocks if block.seat_guids == ("A-3", "A-4")
+    )
+    assert (
+        explain_score(one_order)["hard"]["minimum_distance_between_parties"]
+        == 0
+    )
+
+
 def test_preference_scoring_honors_front_rear_aisle_and_zone_slug() -> None:
     seats = (
         *row_seats(count=4, row="A", zone="Main Floor", aisle={4}, y=1),

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from statistics import median
 from typing import Any
@@ -40,6 +41,8 @@ class SeatFact:
     sorting_rank: int
     accessible: bool = False
     aisle: bool = False
+    distance_conflicting_order_ids: tuple[int, ...] = ()
+    distance_conflicting_reservation: bool = False
 
     @property
     def available(self) -> bool:
@@ -68,6 +71,9 @@ class SeatBlock:
     aisle_count: int
     blocked_count: int
     occupied_count: int
+    coordinates: tuple[tuple[float, float], ...]
+    distance_conflicting_order_ids: tuple[int, ...]
+    distance_conflicting_reservation: bool
     usable_segment_id: str | None
     segment_start: int | None
     segment_end: int | None
@@ -117,6 +123,8 @@ class PartySpec:
 @dataclass(frozen=True, slots=True)
 class PlanningSnapshot:
     event_id: int
+    minimum_seat_distance: float
+    distance_within_row: bool
     seats: tuple[SeatFact, ...]
     parties: tuple[PartySpec, ...]
     fingerprint: str
@@ -201,6 +209,22 @@ def generate_contiguous_blocks(
                         aisle_count=sum(int(seat.aisle) for seat in window),
                         blocked_count=sum(int(seat.blocked) for seat in window),
                         occupied_count=sum(int(seat.occupied) for seat in window),
+                        coordinates=tuple(
+                            (_coordinate(seat.x), _coordinate(seat.y))
+                            for seat in window
+                        ),
+                        distance_conflicting_order_ids=tuple(
+                            sorted(
+                                {
+                                    order_id
+                                    for seat in window
+                                    for order_id in seat.distance_conflicting_order_ids
+                                }
+                            )
+                        ),
+                        distance_conflicting_reservation=any(
+                            seat.distance_conflicting_reservation for seat in window
+                        ),
                         usable_segment_id=segment_id,
                         segment_start=segment_start,
                         segment_end=segment_end,
@@ -224,6 +248,59 @@ def with_seat_configuration(
         )
         for seat in seats
     )
+
+
+def with_distance_conflicts(
+    seats: tuple[SeatFact, ...],
+    *,
+    occupied_order_ids_by_seat: Mapping[int, set[int] | frozenset[int]],
+    reserved_seat_ids: set[int] | frozenset[int],
+    minimum_distance: float,
+    within_row: bool,
+) -> tuple[SeatFact, ...]:
+    """Annotate seats with pretix-compatible distance conflicts.
+
+    pretix applies the minimum distance between different orders and
+    reservations, while positions in one order may remain adjacent.
+    """
+
+    if minimum_distance <= 0:
+        return seats
+    seats_by_id = {seat.id: seat for seat in seats}
+    threshold_squared = minimum_distance**2
+    result: list[SeatFact] = []
+    for candidate in seats:
+        conflicting_order_ids: set[int] = set()
+        conflicting_reservation = False
+        for source_id, order_ids in occupied_order_ids_by_seat.items():
+            source = seats_by_id.get(source_id)
+            if source is not None and _seats_are_too_close(
+                candidate,
+                source,
+                threshold_squared=threshold_squared,
+                within_row=within_row,
+            ):
+                conflicting_order_ids.update(order_ids)
+        for source_id in reserved_seat_ids:
+            source = seats_by_id.get(source_id)
+            if source is not None and _seats_are_too_close(
+                candidate,
+                source,
+                threshold_squared=threshold_squared,
+                within_row=within_row,
+            ):
+                conflicting_reservation = True
+                break
+        result.append(
+            replace(
+                candidate,
+                distance_conflicting_order_ids=tuple(
+                    sorted(conflicting_order_ids)
+                ),
+                distance_conflicting_reservation=conflicting_reservation,
+            )
+        )
+    return tuple(result)
 
 
 def find_exact_block(
@@ -350,3 +427,17 @@ def _coordinate(value: float | None) -> float:
     if value is None:
         raise AssertionError("validated physical runs always have coordinates")
     return value
+
+
+def _seats_are_too_close(
+    left: SeatFact,
+    right: SeatFact,
+    *,
+    threshold_squared: float,
+    within_row: bool,
+) -> bool:
+    if left.x is None or left.y is None or right.x is None or right.y is None:
+        return False
+    if within_row and left.row != right.row:
+        return False
+    return (left.x - right.x) ** 2 + (left.y - right.y) ** 2 < threshold_squared

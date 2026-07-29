@@ -23,6 +23,7 @@ from .domain import (
     PlanningInputError,
     PlanningSnapshot,
     SeatFact,
+    with_distance_conflicts,
     with_seat_configuration,
 )
 from .models import PlacementLock, PlannerConfiguration
@@ -45,13 +46,6 @@ def load_planning_snapshot(
         )
     if event.seating_plan_id is None:
         raise PlanningInputError("This event has no seating plan.")
-    if float(event.settings.seating_minimal_distance) > 0:
-        raise PlanningInputError(
-            "This event uses a nonzero minimum seat distance. SolverForge Seat "
-            "Planner does not yet model pairwise distance between newly assigned "
-            "blocks, so it will not guess a plan."
-        )
-
     seat_models = list(
         event.seats.filter(subevent=None)
         .select_related("product")
@@ -104,6 +98,10 @@ def load_planning_snapshot(
         for position in active_seat_positions
         if position.pk not in planning_position_ids
     }
+    immutable_order_ids_by_seat: dict[int, set[int]] = defaultdict(set)
+    for position in active_seat_positions:
+        if position.pk not in planning_position_ids and position.seat_id is not None:
+            immutable_order_ids_by_seat[position.seat_id].add(position.order_id)
 
     timestamp = now()
     carts = list(
@@ -153,6 +151,13 @@ def load_planning_snapshot(
         ),
         accessible_guids=accessible_guids,
         aisle_guids=aisle_guids,
+    )
+    seat_facts = with_distance_conflicts(
+        seat_facts,
+        occupied_order_ids_by_seat=immutable_order_ids_by_seat,
+        reserved_seat_ids=reserved_seat_ids,
+        minimum_distance=float(event.settings.seating_minimal_distance),
+        within_row=bool(event.settings.seating_distance_within_row),
     )
 
     locks = list(
@@ -329,6 +334,8 @@ def load_planning_snapshot(
     }
     return PlanningSnapshot(
         event_id=event.pk,
+        minimum_seat_distance=float(event.settings.seating_minimal_distance),
+        distance_within_row=bool(event.settings.seating_distance_within_row),
         seats=seat_facts,
         parties=tuple(parties),
         fingerprint=fingerprint,

@@ -47,6 +47,8 @@ class PartyAssignment:
         blocks: tuple[SeatBlock, ...],
         candidate_block_indices: list[int],
         minimum_party_size_for_product: int,
+        minimum_seat_distance: float,
+        distance_within_row: bool,
         seat_block_idx: int | None = None,
     ) -> None:
         self.party_key = spec.key
@@ -62,6 +64,8 @@ class PartyAssignment:
         self.current_seat_guids = spec.current_seat_guids
         self.locked_seat_guids = spec.locked_seat_guids
         self.minimum_party_size_for_product = minimum_party_size_for_product
+        self.minimum_seat_distance = minimum_seat_distance
+        self.distance_within_row = distance_within_row
         self.blocks = blocks
         self.candidate_block_indices = candidate_block_indices
         self.seat_block_idx = seat_block_idx
@@ -113,6 +117,63 @@ def _unavailable_weight(party: PartyAssignment) -> HardSoftScore:
     if block is None:
         return HardSoftScore.ZERO
     return HardSoftScore.of_hard(block.blocked_count + block.occupied_count)
+
+
+def _immutable_distance_violation(party: PartyAssignment) -> bool:
+    block = party.selected_block
+    return (
+        block is not None
+        and (
+            block.distance_conflicting_reservation
+            or any(
+                order_id != party.order_id
+                for order_id in block.distance_conflicting_order_ids
+            )
+        )
+    )
+
+
+def _party_distance_violation(
+    left: PartyAssignment,
+    right: PartyAssignment,
+) -> bool:
+    return _party_distance_violation_count(left, right) > 0
+
+
+def _party_distance_violation_count(
+    left: PartyAssignment,
+    right: PartyAssignment,
+) -> int:
+    left_block = left.selected_block
+    right_block = right.selected_block
+    if (
+        left.party_key >= right.party_key
+        or left.order_id == right.order_id
+        or left.minimum_seat_distance <= 0
+        or left_block is None
+        or right_block is None
+        or (
+            left.distance_within_row
+            and left_block.row != right_block.row
+        )
+    ):
+        return 0
+    threshold_squared = left.minimum_seat_distance**2
+    return sum(
+        (left_x - right_x) ** 2 + (left_y - right_y) ** 2
+        < threshold_squared
+        for left_x, left_y in left_block.coordinates
+        for right_x, right_y in right_block.coordinates
+    )
+
+
+def _party_distance_weight(
+    left: PartyAssignment,
+    right: PartyAssignment,
+) -> HardSoftScore:
+    return HardSoftScore.of_hard(
+        _party_distance_violation_count(left, right)
+    )
 
 
 def _wheelchair_violation(party: PartyAssignment) -> bool:
@@ -171,6 +232,7 @@ def _soft_eligible(party: PartyAssignment) -> bool:
         or _wrong_size(party)
         or _wrong_product(party)
         or _unavailable(party)
+        or _immutable_distance_violation(party)
         or _wheelchair_violation(party)
         or _companion_violation(party)
         or _lock_violation(party)
@@ -335,6 +397,10 @@ def seating_constraints(factory: ConstraintFactory) -> list[object]:
         .penalize(_unavailable_weight)
         .named("block excludes blocked or occupied seats"),
         factory.for_each(PartyAssignment)
+        .filter(_immutable_distance_violation)
+        .penalize(HardSoftScore.ONE_HARD)
+        .named("block keeps pretix distance from existing occupancy"),
+        factory.for_each(PartyAssignment)
         .filter(_wheelchair_violation)
         .penalize(HardSoftScore.ONE_HARD)
         .named("wheelchair party receives an accessible seat"),
@@ -351,6 +417,11 @@ def seating_constraints(factory: ConstraintFactory) -> list[object]:
         .filter(_overlap)
         .penalize(_overlap_weight)
         .named("selected blocks do not overlap"),
+        factory.for_each(PartyAssignment)
+        .join(PartyAssignment)
+        .filter(_party_distance_violation)
+        .penalize(_party_distance_weight)
+        .named("different orders keep pretix minimum seat distance"),
         factory.for_each(PartyAssignment)
         .filter(_has_preference_penalty)
         .penalize(_preference_weight)
@@ -402,6 +473,8 @@ def build_solver_plan(
     *,
     random_seed: int,
     preserve_existing_initially: bool = True,
+    minimum_seat_distance: float = 0,
+    distance_within_row: bool = False,
 ) -> SeatPlanningSolution:
     specs = tuple(parties)
     minimum_sizes: dict[int, int] = {}
@@ -458,6 +531,8 @@ def build_solver_plan(
                 blocks,
                 candidates,
                 minimum_sizes[spec.product_id],
+                minimum_seat_distance,
+                distance_within_row,
                 initial,
             )
         )
@@ -549,6 +624,8 @@ def explain_score(plan: SeatPlanningSolution) -> dict[str, Any]:
         "party_size": 0,
         "product": 0,
         "blocked_or_occupied": 0,
+        "minimum_distance_to_occupied": 0,
+        "minimum_distance_between_parties": 0,
         "wheelchair": 0,
         "companion": 0,
         "lock": 0,
@@ -570,6 +647,9 @@ def explain_score(plan: SeatPlanningSolution) -> dict[str, Any]:
         hard["party_size"] += abs(block.size - party.party_size)
         hard["product"] += int(block.product_id != party.product_id)
         hard["blocked_or_occupied"] += block.blocked_count + block.occupied_count
+        hard["minimum_distance_to_occupied"] += int(
+            _immutable_distance_violation(party)
+        )
         hard["wheelchair"] += int(
             party.requires_wheelchair
             and block.accessible_count < party.wheelchair_count
@@ -601,6 +681,10 @@ def explain_score(plan: SeatPlanningSolution) -> dict[str, Any]:
                 hard["overlap"] += len(
                     frozenset(left_block.seat_ids).intersection(right_block.seat_ids)
                 )
+            hard["minimum_distance_between_parties"] += (
+                _party_distance_violation_count(left, right)
+                + _party_distance_violation_count(right, left)
+            )
             if _interior_orphan(left, right) or _interior_orphan(right, left):
                 soft_penalties["isolated_seat_risk"] += ORPHAN_SEAT_PENALTY
             if _unfair_pair(left, right) or _unfair_pair(right, left):
@@ -773,6 +857,11 @@ def _block_is_candidate(spec: PartySpec, block: SeatBlock) -> bool:
     if block.size != spec.size or block.product_id != spec.product_id:
         return False
     if not block.available:
+        return False
+    if block.distance_conflicting_reservation or any(
+        order_id != spec.order_id
+        for order_id in block.distance_conflicting_order_ids
+    ):
         return False
     if (
         spec.requires_wheelchair
