@@ -1,0 +1,32 @@
+{% extends "pretixcontrol/event/settings_base.html" %}
+{% load i18n %}
+{% load bootstrap3 %}
+
+{% block title %}{% trans "SolverForge Seat Planner settings" %}{% endblock %}
+
+{% block inside %}
+    <h1>{% trans "SolverForge Seat Planner" %}</h1>
+    <p>
+        {% blocktrans trimmed %}
+            Configure which pretix answers carry accessibility and preference facts,
+            and identify seat IDs that have special venue properties.
+            All attendee answers remain inside this pretix process.
+        {% endblocktrans %}
+    </p>
+    <form method="post" class="form-horizontal">
+        {% csrf_token %}
+        {% bootstrap_form form layout="horizontal" %}
+        <div class="form-group submit-group">
+            <div class="col-md-9 col-md-offset-3">
+                <button type="submit" class="btn btn-primary">
+                    <span class="fa fa-check" aria-hidden="true"></span>
+                    {% trans "Save" %}
+                </button>
+                <a class="btn btn-default" href="{% url "plugins:pretix_solverforge_seating:index" organizer=request.organizer.slug event=request.event.slug %}">
+                    {% trans "Back to planner" %}
+                </a>
+            </div>
+        </div>
+    </form>
+{% endblock %}
+

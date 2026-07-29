@@ -1,0 +1,45 @@
+{% extends "pretixcontrol/event/base.html" %}
+{% load i18n %}
+{% load bootstrap3 %}
+
+{% block title %}{% trans "Confirm seat assignment commit" %}{% endblock %}
+
+{% block content %}
+    <h1>{% trans "Commit SolverForge seating proposal" %}</h1>
+    <div class="alert alert-warning" role="alert">
+        <span class="fa fa-exclamation-triangle" aria-hidden="true"></span>
+        {% blocktrans trimmed with id=proposal.pk count=changed_positions %}
+            You are about to commit proposal {{ id }}. This will write real seat
+            assignments for {{ count }} parties through pretix's order-change service.
+        {% endblocktrans %}
+    </div>
+    <div class="panel panel-default">
+        <div class="panel-heading">
+            <h2 class="panel-title">{% trans "Final validation contract" %}</h2>
+        </div>
+        <div class="panel-body">
+            <ul>
+                <li>{% trans "The input fingerprint will be recomputed under database locks." %}</li>
+                <li>{% trans "Every persisted block will be rescored by native SolverForge." %}</li>
+                <li>{% trans "Any hard violation or stale input rejects the entire transaction." %}</li>
+                <li>{% trans "A service failure rolls back every assignment." %}</li>
+            </ul>
+            <p>
+                <strong>{% trans "Score:" %}</strong>
+                <code>{{ proposal.score.levels.0 }} hard / {{ proposal.score.levels.1 }} soft</code>
+            </p>
+        </div>
+    </div>
+    <form method="post" action="{% url "plugins:pretix_solverforge_seating:commit" organizer=request.organizer.slug event=request.event.slug proposal_id=proposal.pk %}">
+        {% csrf_token %}
+        {% bootstrap_form form %}
+        <button type="submit" class="btn btn-danger">
+            <span class="fa fa-check" aria-hidden="true"></span>
+            {% trans "Commit real seat assignments" %}
+        </button>
+        <a class="btn btn-default" href="{% url "plugins:pretix_solverforge_seating:index" organizer=request.organizer.slug event=request.event.slug %}">
+            {% trans "Cancel" %}
+        </a>
+    </form>
+{% endblock %}
+

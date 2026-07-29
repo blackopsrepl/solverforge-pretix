@@ -1,0 +1,171 @@
+.sf-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 10px;
+    margin-bottom: 16px;
+}
+
+.sf-summary .panel {
+    margin: 0;
+    text-align: center;
+}
+
+.sf-summary-value {
+    display: block;
+    color: #3b1c4a;
+    font-size: 1.8rem;
+    font-weight: 700;
+    line-height: 1.1;
+}
+
+.sf-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 18px;
+}
+
+.sf-actions form {
+    display: inline-block;
+}
+
+.sf-map-panel {
+    overflow: hidden;
+}
+
+.sf-seat-map {
+    min-height: 360px;
+    overflow: auto;
+    border: 1px solid #ddd;
+    border-radius: 3px;
+    background:
+        linear-gradient(#fafafa 1px, transparent 1px),
+        linear-gradient(90deg, #fafafa 1px, transparent 1px);
+    background-size: 20px 20px;
+}
+
+.sf-seat-map svg {
+    display: block;
+    width: 100%;
+    min-width: 680px;
+    min-height: 350px;
+}
+
+.sf-seat {
+    cursor: default;
+}
+
+.sf-seat:focus {
+    outline: none;
+}
+
+.sf-seat:focus .sf-seat-shape {
+    stroke: #111;
+    stroke-width: 3;
+}
+
+.sf-seat-shape {
+    fill: #fff;
+    stroke: #777;
+    stroke-width: 1.5;
+}
+
+.sf-seat--existing .sf-seat-shape {
+    stroke: #286090;
+    stroke-width: 3;
+}
+
+.sf-seat--blocked .sf-seat-shape,
+.sf-seat--unavailable .sf-seat-shape {
+    fill: #ddd;
+    stroke: #555;
+}
+
+.sf-seat--proposed .sf-seat-shape,
+.sf-seat--committed .sf-seat-shape {
+    fill: var(--party-color);
+    stroke: #252525;
+    stroke-width: 2;
+}
+
+.sf-seat--committed .sf-seat-shape {
+    stroke: #287a45;
+    stroke-width: 3;
+}
+
+.sf-seat-label {
+    fill: #111;
+    font-size: 9px;
+    font-weight: 700;
+    pointer-events: none;
+    text-anchor: middle;
+}
+
+.sf-seat-mark {
+    fill: #111;
+    font-size: 10px;
+    pointer-events: none;
+    text-anchor: middle;
+}
+
+.sf-zone-label {
+    fill: #3b1c4a;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.sf-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 18px;
+    margin: 0 0 12px;
+    padding: 0;
+    list-style: none;
+}
+
+.sf-legend li {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.sf-legend-seat {
+    display: inline-flex;
+    width: 18px;
+    height: 18px;
+    align-items: center;
+    justify-content: center;
+    border: 2px solid #777;
+    border-radius: 4px 4px 2px 2px;
+    background: #fff;
+    font-size: 13px;
+    line-height: 1;
+}
+
+.sf-legend-existing {
+    border-color: #286090;
+    border-width: 3px;
+}
+
+.sf-legend-proposed {
+    border-color: #252525;
+    background: #a6cee3;
+}
+
+.sf-legend-blocked {
+    border-color: #555;
+    background: #ddd;
+}
+
+@media (max-width: 767px) {
+    .sf-summary {
+        grid-template-columns: repeat(2, minmax(110px, 1fr));
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .sf-seat,
+    .sf-seat-shape {
+        transition: none;
+    }
+}

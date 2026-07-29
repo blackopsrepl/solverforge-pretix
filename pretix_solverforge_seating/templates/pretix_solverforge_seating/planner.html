@@ -1,0 +1,368 @@
+{% extends "pretixcontrol/event/base.html" %}
+{% load i18n %}
+{% load static %}
+
+{% block title %}{% trans "SolverForge Seat Planner" %}{% endblock %}
+
+{% block custom_header %}
+    {{ block.super }}
+    <link rel="stylesheet" href="{% static "pretix_solverforge_seating/planner.css" %}">
+    <script defer src="{% static "pretix_solverforge_seating/planner.js" %}"></script>
+{% endblock %}
+
+{% block content %}
+    <div class="page-header">
+        <h1>
+            <span class="fa fa-th" aria-hidden="true"></span>
+            {% trans "SolverForge Seat Planner" %}
+        </h1>
+    </div>
+
+    {% if input_error %}
+        <div class="alert alert-danger" role="alert">
+            <span class="fa fa-exclamation-triangle" aria-hidden="true"></span>
+            <strong>{% trans "Planning is unavailable:" %}</strong> {{ input_error }}
+        </div>
+    {% endif %}
+
+    {% if proposal_is_stale or proposal.status == "stale" %}
+        <div class="alert alert-warning" role="alert">
+            <span class="fa fa-refresh" aria-hidden="true"></span>
+            {% blocktrans trimmed %}
+                This proposal is stale because orders, seats, reservations, configuration,
+                or locks changed. It cannot be committed; generate a fresh proposal.
+            {% endblocktrans %}
+        </div>
+    {% elif proposal.status == "committed" %}
+        <div class="alert alert-success" role="status">
+            <span class="fa fa-check-circle" aria-hidden="true"></span>
+            {% blocktrans trimmed with id=proposal.pk %}
+                Proposal {{ id }} is committed. The map now reflects persisted pretix order-position seats.
+            {% endblocktrans %}
+        </div>
+    {% elif proposal.status == "proposed" %}
+        <div class="alert alert-info" role="status">
+            <span class="fa fa-eye" aria-hidden="true"></span>
+            {% blocktrans trimmed with id=proposal.pk %}
+                Proposal {{ id }} is a preview only. No pretix seat assignment has changed.
+            {% endblocktrans %}
+        </div>
+    {% endif %}
+
+    {% if snapshot %}
+        <div class="sf-summary" aria-label="{% trans "Planner summary" %}">
+            <div class="panel panel-default">
+                <div class="panel-body">
+                    <span class="sf-summary-value">{{ snapshot.summary.parties }}</span>
+                    <span>{% trans "parties" %}</span>
+                </div>
+            </div>
+            <div class="panel panel-default">
+                <div class="panel-body">
+                    <span class="sf-summary-value">{{ snapshot.summary.positions }}</span>
+                    <span>{% trans "ticket positions" %}</span>
+                </div>
+            </div>
+            <div class="panel panel-default">
+                <div class="panel-body">
+                    <span class="sf-summary-value">{{ snapshot.summary.available }}</span>
+                    <span>{% trans "available" %}</span>
+                </div>
+            </div>
+            <div class="panel panel-default">
+                <div class="panel-body">
+                    <span class="sf-summary-value">{{ snapshot.summary.blocked }}</span>
+                    <span>{% trans "blocked" %}</span>
+                </div>
+            </div>
+            <div class="panel panel-default">
+                <div class="panel-body">
+                    <span class="sf-summary-value">{{ snapshot.summary.occupied }}</span>
+                    <span>{% trans "occupied" %}</span>
+                </div>
+            </div>
+            <div class="panel panel-default">
+                <div class="panel-body">
+                    <span class="sf-summary-value">{{ proposed_seat_count }}</span>
+                    <span>
+                        {% if proposal.status == "committed" %}
+                            {% trans "committed" %}
+                        {% else %}
+                            {% trans "proposed" %}
+                        {% endif %}
+                    </span>
+                </div>
+            </div>
+        </div>
+    {% endif %}
+
+    <div class="btn-toolbar sf-actions" role="toolbar" aria-label="{% trans "Planner actions" %}">
+        {% if can_write and not input_error %}
+            <form method="post" action="{% url "plugins:pretix_solverforge_seating:generate" organizer=request.organizer.slug event=request.event.slug %}">
+                {% csrf_token %}
+                <button class="btn btn-primary" type="submit">
+                    <span class="fa fa-magic" aria-hidden="true"></span>
+                    {% if proposal %}{% trans "Replan" %}{% else %}{% trans "Generate proposal" %}{% endif %}
+                </button>
+            </form>
+        {% endif %}
+        {% if can_configure %}
+            <a class="btn btn-default" href="{% url "plugins:pretix_solverforge_seating:settings" organizer=request.organizer.slug event=request.event.slug %}">
+                <span class="fa fa-cog" aria-hidden="true"></span>
+                {% trans "Configuration" %}
+            </a>
+        {% endif %}
+        {% if proposal and can_write and proposal.status != "committed" and proposal.status != "discarded" %}
+            <form method="post" action="{% url "plugins:pretix_solverforge_seating:discard" organizer=request.organizer.slug event=request.event.slug proposal_id=proposal.pk %}">
+                {% csrf_token %}
+                <button class="btn btn-default" type="submit">
+                    <span class="fa fa-trash" aria-hidden="true"></span>
+                    {% trans "Discard proposal" %}
+                </button>
+            </form>
+        {% endif %}
+        {% if proposal and can_write and proposal.status == "proposed" and not proposal_is_stale %}
+            <a class="btn btn-success" href="{% url "plugins:pretix_solverforge_seating:commit.confirm" organizer=request.organizer.slug event=request.event.slug proposal_id=proposal.pk %}">
+                <span class="fa fa-check" aria-hidden="true"></span>
+                {% trans "Commit proposal…" %}
+            </a>
+        {% endif %}
+    </div>
+
+    {% if snapshot %}
+        <div class="panel panel-default sf-map-panel">
+            <div class="panel-heading">
+                <h2 class="panel-title">{% trans "Visual seat map" %}</h2>
+            </div>
+            <div class="panel-body">
+                <ul class="sf-legend" aria-label="{% trans "Seat map legend" %}">
+                    <li><span class="sf-legend-seat sf-legend-available"></span>{% trans "Available" %}</li>
+                    <li><span class="sf-legend-seat sf-legend-existing"></span>{% trans "Existing assignment" %}</li>
+                    <li>
+                        <span class="sf-legend-seat sf-legend-proposed"></span>
+                        {% if proposal.status == "committed" %}
+                            {% trans "Committed party" %}
+                        {% else %}
+                            {% trans "Proposed party" %}
+                        {% endif %}
+                    </li>
+                    <li><span class="sf-legend-seat sf-legend-blocked">×</span>{% trans "Blocked/unavailable" %}</li>
+                    <li><span class="fa fa-lock" aria-hidden="true"></span>{% trans "Locked" %}</li>
+                    <li><span class="fa fa-wheelchair" aria-hidden="true"></span>{% trans "Accessible" %}</li>
+                </ul>
+                <div id="solverforge-seat-map" class="sf-seat-map" aria-live="polite"></div>
+                {{ seat_map|json_script:"solverforge-seat-map-data" }}
+                <noscript>
+                    <div class="alert alert-warning">{% trans "JavaScript is required to render the visual seat map." %}</div>
+                </noscript>
+            </div>
+        </div>
+    {% endif %}
+
+    {% if proposal %}
+        <div class="row">
+            <div class="col-md-5">
+                <div class="panel panel-default">
+                    <div class="panel-heading">
+                        <h2 class="panel-title">{% trans "Solver status and score" %}</h2>
+                    </div>
+                    <div class="panel-body">
+                        <dl class="dl-horizontal">
+                            <dt>{% trans "Status" %}</dt>
+                            <dd>{{ proposal.get_status_display }}</dd>
+                            <dt>{% trans "Native score" %}</dt>
+                            <dd>
+                                <code>
+                                    {{ proposal.score.levels.0 }} hard /
+                                    {{ proposal.score.levels.1 }} soft
+                                </code>
+                            </dd>
+                            <dt>{% trans "Hard violations" %}</dt>
+                            <dd>{{ proposal.score_explanation.hard_violations }}</dd>
+                            <dt>{% trans "Changed parties" %}</dt>
+                            <dd>{{ changed_assignment_count }}</dd>
+                            <dt>{% trans "Snapshot" %}</dt>
+                            <dd><code title="{{ proposal.snapshot_fingerprint }}">{{ proposal.snapshot_fingerprint|slice:":12" }}…</code></dd>
+                        </dl>
+                        <h3 class="h4">{% trans "Hard-score explanation" %}</h3>
+                        <ul>
+                            {% for name, count in proposal.score_explanation.hard.items %}
+                                <li>{{ name }}: {{ count }}</li>
+                            {% endfor %}
+                        </ul>
+                        <h3 class="h4">{% trans "Soft-score explanation" %}</h3>
+                        <ul>
+                            {% for name, value in proposal.score_explanation.soft_rewards.items %}
+                                <li>{{ name }}: +{{ value }}</li>
+                            {% endfor %}
+                            {% for name, value in proposal.score_explanation.soft_penalties.items %}
+                                <li>{{ name }}: −{{ value }}</li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-7">
+                <div class="panel panel-default">
+                    <div class="panel-heading">
+                        <h2 class="panel-title">
+                            {% if proposal.status == "committed" %}
+                                {% trans "Committed placements" %}
+                            {% else %}
+                                {% trans "Proposed placements" %}
+                            {% endif %}
+                        </h2>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>{% trans "Order / product" %}</th>
+                                    <th>{% trans "Seats" %}</th>
+                                    <th>{% trans "Change" %}</th>
+                                    <th>{% trans "Lock" %}</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for assignment in assignments %}
+                                    <tr>
+                                        <td>
+                                            <strong>{{ assignment.order_code }}</strong><br>
+                                            <small>{{ assignment.product_name }} · {{ assignment.position_ids|length }}</small>
+                                            {% if assignment.requires_wheelchair %}
+                                                <span class="fa fa-wheelchair" title="{% trans "Wheelchair requirement" %}"></span>
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            {{ assignment.zone }} / {{ assignment.row }}:
+                                            {{ assignment.seat_guids|join:", " }}
+                                            {% if assignment.preferences %}
+                                                <br><small>{% trans "Preferences:" %} {{ assignment.preferences|join:", " }}</small>
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            {% if assignment.changed %}
+                                                <span class="label label-warning">{% trans "Changed" %}</span>
+                                                {% if assignment.current_seat_guids %}
+                                                    <br><small>{% trans "Was:" %} {{ assignment.current_seat_guids|join:", " }}</small>
+                                                {% endif %}
+                                            {% else %}
+                                                <span class="label label-default">{% trans "Unchanged" %}</span>
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            {% if assignment.currently_locked %}
+                                                <span class="label label-info"><span class="fa fa-lock"></span> {% trans "Locked" %}</span>
+                                            {% elif can_write and proposal.status == "proposed" and not proposal_is_stale %}
+                                                <form method="post" action="{% url "plugins:pretix_solverforge_seating:lock" organizer=request.organizer.slug event=request.event.slug proposal_id=proposal.pk %}">
+                                                    {% csrf_token %}
+                                                    <input type="hidden" name="party_key" value="{{ assignment.party_key }}">
+                                                    <button class="btn btn-xs btn-default" type="submit">
+                                                        <span class="fa fa-lock" aria-hidden="true"></span>
+                                                        {% trans "Lock" %}
+                                                    </button>
+                                                </form>
+                                            {% else %}
+                                                —
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                {% empty %}
+                                    <tr><td colspan="4">{% trans "This proposal has no placements." %}</td></tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    {% endif %}
+
+    {% if current_parties %}
+        <div class="panel panel-default">
+            <div class="panel-heading">
+                <h2 class="panel-title">{% trans "Existing pretix assignments" %}</h2>
+            </div>
+            <div class="table-responsive">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>{% trans "Order / product" %}</th>
+                            <th>{% trans "Current seats" %}</th>
+                            <th>{% trans "Hard lock" %}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for party in current_parties %}
+                            <tr>
+                                <td>
+                                    <strong>{{ party.order_code }}</strong><br>
+                                    <small>{{ party.product_name }} · {{ party.position_count }}</small>
+                                </td>
+                                <td>{{ party.seat_guids|join:", " }}</td>
+                                <td>
+                                    {% if party.currently_locked %}
+                                        <span class="label label-info">
+                                            <span class="fa fa-lock" aria-hidden="true"></span>
+                                            {% trans "Locked" %}
+                                        </span>
+                                    {% elif can_write %}
+                                        <form method="post" action="{% url "plugins:pretix_solverforge_seating:lock.existing" organizer=request.organizer.slug event=request.event.slug %}">
+                                            {% csrf_token %}
+                                            <input type="hidden" name="party_key" value="{{ party.party_key }}">
+                                            <button class="btn btn-xs btn-default" type="submit">
+                                                <span class="fa fa-lock" aria-hidden="true"></span>
+                                                {% trans "Lock existing" %}
+                                            </button>
+                                        </form>
+                                    {% else %}
+                                        —
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    {% endif %}
+
+    {% if locks %}
+        <div class="panel panel-default">
+            <div class="panel-heading">
+                <h2 class="panel-title">{% trans "Organizer locks" %}</h2>
+            </div>
+            <div class="table-responsive">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>{% trans "Party" %}</th>
+                            <th>{% trans "Locked seats" %}</th>
+                            <th>{% trans "Action" %}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for lock in locks %}
+                            <tr>
+                                <td><code>{{ lock.party_key }}</code></td>
+                                <td>{{ lock.seat_guids|join:", " }}</td>
+                                <td>
+                                    {% if can_write %}
+                                        <form method="post" action="{% url "plugins:pretix_solverforge_seating:unlock" organizer=request.organizer.slug event=request.event.slug %}">
+                                            {% csrf_token %}
+                                            <input type="hidden" name="lock_id" value="{{ lock.pk }}">
+                                            <button class="btn btn-xs btn-default" type="submit">
+                                                <span class="fa fa-unlock" aria-hidden="true"></span>
+                                                {% trans "Unlock" %}
+                                            </button>
+                                        </form>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    {% endif %}
+{% endblock %}
