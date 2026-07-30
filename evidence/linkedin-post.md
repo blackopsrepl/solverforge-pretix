@@ -55,26 +55,19 @@ inspect, adjust, and trust.
 
 ## Recommended image order
 
-1. [`after-solve.png`](screenshots/after-solve.png) — Lead image. It shows the
-   complete proposal inside pretix, with a clear preview-only notice and every
-   party visible on the seat map before anything changes.
-2. [`after-lock-replan.png`](screenshots/after-lock-replan.png) — It proves
-   organizer control: the organizer has locked two placements and replanned
-   everything else around them.
-3. [`after-commit.png`](screenshots/after-commit.png) — It shows the explicit
-   commit result and all 15 assigned seats on the final map.
-4. [`pretix-order-after-commit.png`](screenshots/pretix-order-after-commit.png)
-   — Close with the strongest host-integration proof: the ordinary pretix order
-   page shows seats A-07, A-08, and A-09 plus pretix's own order-change history.
+Both images are ready at LinkedIn's 4:5 maximum ratio and 1080 × 1350 pixels:
+
+1. [`01-proposal-4x5.png`](linkedin/01-proposal-4x5.png) — Lead image. It shows
+   the complete proposal inside pretix, with a clear preview-only notice and
+   every party visible on the seat map before anything changes.
+2. [`02-pretix-order-4x5.png`](linkedin/02-pretix-order-4x5.png) — Close with
+   the strongest host-integration proof: the ordinary pretix order page shows
+   seats A-07, A-08, and A-09 plus pretix's own order-change history.
 
 ## Image alt text
 
 1. SolverForge Seat Planner inside the pretix control panel, showing a
    preview-only proposal for 15 ticket holders on a visual seat map before any
    assignment is committed.
-2. Replanned pretix seat proposal with two organizer locks preserved, including
-   an accessible two-seat placement and a locked three-person party.
-3. Committed SolverForge proposal in pretix, showing the final placements for
-   all 15 ticket holders.
-4. Standard pretix order detail for order SF003, showing three assigned seats
-   in Stalls row A and the corresponding seat changes in pretix's order history.
+2. Standard pretix order detail for order SF003, showing assigned seats 7, 8,
+   and 9 in Stalls row A and the matching entries in pretix's order history.
