@@ -1,5 +1,8 @@
 # Runtime evidence
 
+The ready-to-paste launch copy, image order, and accessible image descriptions
+are in [`linkedin-post.md`](linkedin-post.md).
+
 These images were captured on 2026-07-29 from a real pretix 2026.6.1 process.
 The process ran outside the source tree from a clean CPython 3.14.6 virtual
 environment containing the built `solverforge-pretix` wheel and the exact
