@@ -8,7 +8,7 @@ there is no self-serve upload.
 ## Package
 
 - PyPI: `solverforge-pretix`
-- Source: https://github.com/SolverForge/solverforge-pretix
+- Source: https://github.com/blackopsrepl/solverforge-pretix
 - License: AGPL-3.0-or-later
 - Plugin app label: `pretix_solverforge_seating`
 - Plugin level: event
