@@ -1,13 +1,10 @@
 # Runtime evidence
 
-The ready-to-paste launch copy, image order, and accessible image descriptions
-are in [`linkedin-post.md`](linkedin-post.md).
-
 These images were captured on 2026-07-29 from a real pretix 2026.6.1 process.
 The process ran outside the source tree from a clean CPython 3.14.6 virtual
 environment containing the built `solverforge-pretix` wheel and the exact
-`solverforge` 0.6.4 CPython wheel. The loaded native module was
-`solverforge._native`; the binding source pins SolverForge core 0.19.2 exactly.
+`solverforge` 0.6.6 CPython wheel. The loaded native module was
+`solverforge._native`; the binding source pins SolverForge core 0.19.4 exactly.
 The demo used pretix minimum seat distance `31` with distance enforced within
 each row.
 

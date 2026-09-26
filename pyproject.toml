@@ -20,7 +20,7 @@ classifiers = [
 ]
 dependencies = [
   "pretix==2026.6.1",
-  "solverforge==0.6.4",
+  "solverforge==0.6.6",
 ]
 
 [project.urls]

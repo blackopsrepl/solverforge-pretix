@@ -10,8 +10,9 @@ The shortest reproducible packaged demo path is:
 ```bash
 uv build
 uv venv --python /usr/bin/python3.14 .venv
+export SOLVERFORGE_WHEEL="${SOLVERFORGE_WHEEL:-/srv/lab/dev/solverforge/solverforge-py/dist/solverforge-0.6.6-cp314-cp314-manylinux_2_34_x86_64.whl}"
 uv pip install --python .venv/bin/python \
-  /srv/lab/dev/solverforge/solverforge-py/dist/solverforge-0.6.4-cp314-cp314-manylinux_2_34_x86_64.whl \
+  "$SOLVERFORGE_WHEEL" \
   dist/solverforge_pretix-0.1.0-py3-none-any.whl \
   playwright==1.57.0
 export PRETIX_CONFIG_FILE="$PWD/dev/pretix.cfg"
@@ -36,14 +37,14 @@ event when it does not exist. It never deletes or resets other pretix data.
 | --- | --- |
 | Python | 3.14 |
 | pretix | 2026.6.1 |
-| `solverforge` Python package | 0.6.4 |
-| SolverForge core crates | 0.19.2 exactly |
+| `solverforge` Python package | 0.6.6 |
+| SolverForge core crates | 0.19.4 exactly |
 | Native module | `solverforge._native` |
 
 `pyproject.toml` pins the host and Python binding exactly. The recorded proof
 used the pre-existing local CPython wheel whose embedded metadata identifies
-`solverforge` 0.6.4. The allowed local binding source declares version 0.6.4,
-and its six SolverForge Cargo dependencies and lockfile resolve to 0.19.2.
+`solverforge` 0.6.6. The allowed local binding source declares version 0.6.6,
+and its six SolverForge Cargo dependencies and lockfile resolve to 0.19.4.
 
 If that exact CPython 3.14 wheel is missing, build it without changing the
 binding checkout:
