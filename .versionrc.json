@@ -1,0 +1,26 @@
+{
+  "tagPrefix": "v",
+  "releaseCommitMessageFormat": "chore(release): {{currentTag}}",
+  "commitUrlFormat": "https://github.com/blackopsrepl/solverforge-pretix/commit/{{hash}}",
+  "compareUrlFormat": "https://github.com/blackopsrepl/solverforge-pretix/compare/{{previousTag}}...{{currentTag}}",
+  "packageFiles": [
+    {
+      "filename": "pyproject.toml",
+      "updater": "scripts/version/pyproject-version.js"
+    },
+    {
+      "filename": "pretix_solverforge_seating/__init__.py",
+      "updater": "scripts/version/init-version.js"
+    }
+  ],
+  "bumpFiles": [
+    {
+      "filename": "pyproject.toml",
+      "updater": "scripts/version/pyproject-version.js"
+    },
+    {
+      "filename": "pretix_solverforge_seating/__init__.py",
+      "updater": "scripts/version/init-version.js"
+    }
+  ]
+}
