@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "solverforge-pretix"
-version = "0.1.0"
+version = "1.0.0"
 description = "Native SolverForge seat planning for pretix"
 readme = "README.md"
 requires-python = ">=3.14,<3.15"
@@ -25,8 +25,8 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://solverforge.org/"
-Repository = "https://github.com/solverforge/solverforge-pretix"
-Issues = "https://github.com/solverforge/solverforge-pretix/issues"
+Repository = "https://github.com/SolverForge/solverforge-pretix"
+Issues = "https://github.com/SolverForge/solverforge-pretix/issues"
 
 [project.entry-points."pretix.plugin"]
 pretix_solverforge_seating = "pretix_solverforge_seating"

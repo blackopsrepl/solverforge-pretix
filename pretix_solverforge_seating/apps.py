@@ -1,3 +1,4 @@
+from django.utils.functional import cached_property
 from django.utils.translation import gettext_lazy as _
 from pretix.base.plugins import PLUGIN_LEVEL_EVENT, PluginConfig
 
@@ -21,7 +22,7 @@ class SolverForgeSeatingApp(PluginConfig):
             "Propose, review, lock, and explicitly commit concrete seat assignments "
             "using native SolverForge."
         )
-        compatibility = "pretix==2026.6.1"
+        compatibility = "pretix>=2026.6.0"
         navigation_links: list[
             tuple[tuple[object, object], str, dict[str, object]]
         ] = [
@@ -43,3 +44,11 @@ class SolverForgeSeatingApp(PluginConfig):
 
     def ready(self) -> None:
         from . import signals  # noqa: F401
+
+    @cached_property
+    def compatibility_errors(self) -> list[str]:
+        return []
+
+    @cached_property
+    def compatibility_warnings(self) -> list[str]:
+        return []

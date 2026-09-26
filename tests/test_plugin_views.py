@@ -32,7 +32,7 @@ def test_plugin_entry_point_discovery_and_event_activation(demo: object) -> None
         "pretix_solverforge_seating"
     )
     assert "pretix_solverforge_seating" in demo.event.get_plugins()
-    assert SolverForgeSeatingApp.PretixPluginMeta.compatibility == "pretix==2026.6.1"
+    assert SolverForgeSeatingApp.PretixPluginMeta.compatibility == "pretix>=2026.6.0"
 
 
 @pytest.mark.django_db
